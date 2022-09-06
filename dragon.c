@@ -38,8 +38,9 @@ int thumb_size = 96;
 bool and_exit;
 bool keep;
 bool print_path = false;
-bool icons_only = false;
+int icons_style = 0;
 bool always_on_top = false;
+bool show_tooltip = false;
 
 static char *stdin_files;
 
@@ -153,12 +154,15 @@ void add_uri(char *uri) {
 GtkButton *add_button(char *label, struct draggable_thing *dragdata, int type) {
     GtkWidget *button;
 
-    if (icons_only) {
+    if (icons_style == 1) {
         button = gtk_button_new();
     } else {
         button = gtk_button_new_with_label(label);
     }
-
+    if (show_tooltip) {
+        gtk_widget_set_tooltip_text(GTK_WIDGET(button), label);
+    }
+    
     GtkTargetList *targetlist = gtk_drag_source_get_target_list(GTK_WIDGET(button));
     if (targetlist)
         gtk_target_list_ref(targetlist);
@@ -189,11 +193,43 @@ GtkButton *add_button(char *label, struct draggable_thing *dragdata, int type) {
     return (GtkButton *)button;
 }
 
-void left_align_button(GtkButton *button) {
+void align_button(GtkButton *button) {
     GList *child = g_list_first(
-            gtk_container_get_children(GTK_CONTAINER(button)));
-    if (child)
-        gtk_widget_set_halign(GTK_WIDGET(child->data), GTK_ALIGN_START);
+          gtk_container_get_children(GTK_CONTAINER(button)));
+    
+    if (icons_style == 0) {
+        if (child)
+            gtk_widget_set_halign(GTK_WIDGET(child->data), GTK_ALIGN_START);
+    } else if (icons_style == 2) {
+        gtk_button_set_image_position(button, GTK_POS_TOP);
+        const gchar* label = gtk_button_get_label(button);
+        
+        if (g_utf8_strlen(label, -1) > 25) {
+            gchar* pl = (gchar*)label;
+            size_t i = 0;
+            gchar reformated_label[1000];
+            
+            memset(reformated_label, '\0', 1000);
+            for (size_t llen = 1; llen < 50; ++llen) {
+                gchar* pl2 = g_utf8_next_char(pl);
+
+                for (pl; pl < pl2; ++pl) {
+                    reformated_label[i++] = *pl;
+                }
+
+                if (llen % 25 == 0) {
+                    reformated_label[i++] = '\n';
+                }
+            }
+            if (g_utf8_next_char(pl) != NULL) {
+                reformated_label[i++] = '.';
+                reformated_label[i++] = '.';
+                reformated_label[i++] = '.';
+            }
+      
+            gtk_button_set_label(button, reformated_label);
+        }
+    }
 }
 
 GtkIconInfo* icon_info_from_content_type(char *content_type) {
@@ -246,8 +282,8 @@ void add_file_button(GFile *file) {
         }
     }
 
-    if (!icons_only)
-        left_align_button(button);
+    if (icons_style != 1)
+        align_button(button);
 }
 
 void add_filename_button(char *filename) {
@@ -264,7 +300,7 @@ void add_uri_button(char *uri) {
     dragdata->text = uri;
     dragdata->uri = uri;
     GtkButton *button = add_button(uri, dragdata, TARGET_TYPE_URI);
-    left_align_button(button);
+    align_button(button);
 }
 
 bool is_uri(char *uri) {
@@ -463,10 +499,13 @@ int main (int argc, char **argv) {
                     " the number of files\n");
             printf("  --icon-only,   -i  only show icons in drag-and-drop"
                     " windows\n");
+            printf("  --align-top,   -l  put the icon on the top of the window"
+                   " instead of the left side, conflicts with `--icon-only'\n");
             printf("  --on-top,      -T  make window always-on-top\n");
             printf("  --stdin,       -I  read input from stdin\n");
             printf("  --thumb-size,  -s  set thumbnail size (default 96)\n");
             printf("  --verbose,     -v  be verbose\n");
+            printf("  --tooltip      -o  show tooltip\n");            
             printf("  --help            show help\n");
             printf("  --version         show version details\n");
             exit(0);
@@ -501,10 +540,28 @@ int main (int argc, char **argv) {
             all_compact = true;
         } else if (strcmp(argv[i], "-i") == 0
                 || strcmp(argv[i], "--icon-only") == 0) {
-            icons_only = true;
+            if (icons_style == 2) {
+                fprintf(stderr, "%s: error: bad argument for %s, `--icons-only' "
+                        "or `--align-top' can be set only once.\n",
+                        progname, argv[i]);
+                exit(1);
+            }
+            icons_style = 1;
+        } else if (strcmp(argv[i], "-l") == 0
+                || strcmp(argv[i], "--align-top") == 0) {
+            if (icons_style == 1) {
+                fprintf(stderr, "%s: error: bad argument for %s, `--icons-only' "
+                        "or `--align-top' can be set only once.\n",
+                        progname, argv[i]);
+                exit(1);
+            }
+            icons_style = 2;
         } else if (strcmp(argv[i], "-T") == 0
                 || strcmp(argv[i], "--on-top") == 0) {
             always_on_top = true;
+        } else if (strcmp(argv[i], "-o") == 0
+                || strcmp(argv[i], "--tooltip") == 0) {
+            show_tooltip = true;
         } else if (strcmp(argv[i], "-I") == 0
                 || strcmp(argv[i], "--stdin") == 0) {
             from_stdin = true;
